@@ -47,7 +47,29 @@ The stock `btusb` driver and the vendor `aic_btusb` driver can both claim the ad
 
 This rule blocks `btusb` for the **whole system**, so other USB Bluetooth adapters that depend on it will stop working.
 
-## Installation
+## Automated installation
+
+`install.sh` runs the manual steps below. Run it as a normal user; it asks for sudo when needed. It stops on kernel 7.3+.
+
+```bash
+./install.sh --dry-run    # print the commands without changing anything
+./install.sh              # install
+sudo reboot
+./install.sh verify       # check modules and interfaces
+```
+
+| Command | Purpose |
+|---|---|
+| `./install.sh install` | Full installation (default) |
+| `./install.sh rebuild-bt` | Rebuild `aic_btusb` after a kernel update |
+| `./install.sh verify` | Check modules, WiFi interface and Bluetooth controller |
+| `./install.sh uninstall` | Remove everything it installed, except the sources |
+
+Sources are kept in `~/aic8800-build`, or in `AIC8800_WORK` if set. Each install resets those clones to the pinned commits, which discards any edits there. Unlike the manual steps, the script always installs the udev rule, which only acts on the storage-mode USB IDs.
+
+The script has only been tested with `sudo`, `dnf`, `dkms` and `make` stubbed out, on a machine without the adapter. It has not yet run on Fedora ARM.
+
+## Manual installation
 
 Commands are written for bash. If your login shell is fish, run `bash` first.
 
@@ -68,7 +90,7 @@ ls "/lib/modules/$(uname -r)/build"
 Set `PATCHES` to the `patches` directory of your clone of this repository.
 
 ```bash
-PATCHES="$HOME/aic8800-d80-fedora-arm/patches"
+PATCHES="$HOME/aic8800d80-fedora-arm/patches"
 WORK="$HOME/aic8800-build"
 mkdir -p "$WORK" && cd "$WORK"
 
@@ -179,7 +201,7 @@ Test WiFi and Bluetooth **at the same time**, since this has not been confirmed.
 | Firmware, modprobe rule | No action needed |
 | `aic_btusb` | **Rebuild by hand**, because it is not managed by DKMS |
 
-After rebooting into the new kernel, rebuild Bluetooth. Keep `$WORK` for this, or fetch the Radxa source again.
+After rebooting into the new kernel, rebuild Bluetooth with `./install.sh rebuild-bt`, or by hand. For the manual route, keep `$WORK` or fetch the Radxa source again.
 
 ```bash
 cd "$HOME/aic8800-build/radxa-aic8800/src/USB/driver_fw/drivers/aic_btusb"
@@ -197,7 +219,7 @@ sudo modprobe aic_btusb
 |---|---|---|
 | 3498, 3500 | `cfg80211_probe_status()` takes another argument | Expected 8 arguments, got 7 |
 | 5823 | `mgmt_tx` takes `u64` instead of `u64 *` as its last argument | Incompatible function pointer |
-| 5828 | `probe_client` was removed from `struct cfg80211_ops` | Unknown field |
+| 5828 | `probe_client` is gone from `struct cfg80211_ops`, replaced by `probe_peer` | Unknown field |
 | 5836 | `remain_on_channel` takes `u64` instead of `u64 *` for the cookie | Incompatible function pointer |
 
 Fixing these needs a real port, not only signature changes, because the driver returns its cookie through the pointer that is going away. A later build may expose further errors, as well as runtime problems that compilation cannot reveal.
