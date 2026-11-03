@@ -1,0 +1,62 @@
+diff --git a/scripts/dkms-pre-build.sh b/scripts/dkms-pre-build.sh
+index 77793c1..33104e5 100755
+--- a/scripts/dkms-pre-build.sh
++++ b/scripts/dkms-pre-build.sh
+@@ -6,3 +6,57 @@ SRC="drivers/aic8800/aic8800_fdrv/rwnx_rx.c"
+ 
+ # Fix: in_irq() removed in kernel 5.14+ → replaced by in_hardirq()
+ sed -i 's/in_irq()/in_hardirq()/g' "$SRC"
++
++# Fix: strncpy() was removed from the kernel in 7.2 (idempotent)
++SRCDIR="drivers/aic8800/aic8800_fdrv"
++for f in rwnx_fw_dump.c rwnx_msg_tx.c rwnx_platform.c; do
++    fp="$SRCDIR/$f"
++    [ -f "$fp" ] || continue
++    grep -q "aic_strncpy" "$fp" && continue
++    grep -q "strncpy" "$fp" || continue
++    awk '
++        BEGIN{done=0}
++        /^#include/ && !done {
++            print
++            getline nxt
++            print nxt
++            print "/* strncpy() was removed from the kernel in 7.2; keep classic semantics. */"
++            print "static inline char *aic_strncpy(char *dest, const char *src, size_t count)"
++            print "{"
++            print "\tsize_t i = 0;"
++            print "\twhile (i < count && src[i]) { dest[i] = src[i]; i++; }"
++            print "\twhile (i < count) { dest[i] = 0; i++; }"
++            print "\treturn dest;"
++            print "}"
++            print "#define strncpy aic_strncpy"
++            done=1
++            next
++        }
++        { print }
++    ' "$fp" > "${fp}.tmp" && mv "${fp}.tmp" "$fp"
++    echo "Parcheado: $fp"
++done
++
++# Fix: remain_on_channel gained a trailing 'const u8 *' arg in kernel 7.2 (idempotent)
++MAIN="drivers/aic8800/aic8800_fdrv/rwnx_main.c"
++if [ -f "$MAIN" ] && ! grep -q "link_addr" "$MAIN"; then
++    python3 - "$MAIN" <<'PYEOF'
++import sys
++
++path = sys.argv[1]
++with open(path) as f:
++    text = f.read()
++
++guard = "#if (LINUX_VERSION_CODE >= KERNEL_VERSION(7, 2, 0))\n\t, const u8 *link_addr\n#endif\n\t"
++
++old_def = "unsigned int duration, u64 *cookie)\n{"
++if old_def not in text:
++    sys.exit("rwnx_main.c: remain_on_channel definition anchor not found")
++new_def = "unsigned int duration, u64 *cookie\n" + guard + ")\n{"
++text = text.replace(old_def, new_def, 1)
++
++with open(path, "w") as f:
++    f.write(text)
++print("Parcheado:", path)
++PYEOF
++fi
