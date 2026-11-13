@@ -41,7 +41,7 @@ Commands:
 
 Options:
   --dry-run                  Print the commands without changing anything
-  --allow-unsupported-kernel Continue on kernel 7.3+ (the WiFi build will fail)
+  --allow-unsupported-kernel Continue on kernel 7.4+ (untested, the WiFi build may fail)
   -h, --help                 Show this help
 
 Sources are kept in ${WORK} (override with AIC8800_WORK).
@@ -95,11 +95,11 @@ check_fedora() {
 check_kernel() {
     local major minor
     IFS=. read -r major minor _ <<<"$KVER"
-    if ((major > 7 || (major == 7 && minor >= 3))); then
+    if ((major > 7 || (major == 7 && minor >= 4))); then
         if ((ALLOW_UNSUPPORTED)); then
-            warn "kernel $KVER is unsupported: the aic8800_fdrv build is expected to fail"
+            warn "kernel $KVER is untested: the aic8800_fdrv build may fail"
         else
-            die "kernel $KVER is unsupported: aic8800_fdrv does not build on 7.3+. Boot a 7.2 kernel first (see README.md)"
+            die "kernel $KVER is untested: patches cover up to 7.3. Boot a 7.3 kernel or pass --allow-unsupported-kernel (see README.md)"
         fi
     fi
 }
@@ -152,7 +152,7 @@ fetch_sources() {
 assemble_tree() {
     log "Applying patches and replacing aic_load_fw"
     run git -C "$DRIVER_DIR" apply "${PATCHES}/0001-kernel-7.2-compat.patch"
-    run git -C "$DRIVER_DIR" apply "${PATCHES}/0002-wifi-disable-usb-bt.patch"
+    run git -C "$DRIVER_DIR" apply "${PATCHES}/0003-kernel-7.3-compat.patch"
     run rm -rf "${DRIVER_DIR}/drivers/aic8800/aic_load_fw"
     run cp -r "${RADXA_DRV}/drivers/aic8800/aic_load_fw" "${DRIVER_DIR}/drivers/aic8800/aic_load_fw"
     run chmod +x "${DRIVER_DIR}/scripts/dkms-pre-build.sh"
@@ -176,6 +176,8 @@ install_firmware() {
 
 install_bluetooth() {
     log "Building and installing aic_btusb for $KVER"
+    # bluez mode (hci device) instead of the android char device; same as radxa's debian patch
+    run sed -i 's/^\(#define CONFIG_BLUEDROID[[:space:]]\+\)1/\10/' "${RADXA_DRV}/drivers/aic_btusb/aic_btusb.h"
     run make -C "${RADXA_DRV}/drivers/aic_btusb" clean
     run make -C "${RADXA_DRV}/drivers/aic_btusb"
     run sudo install -p -m 644 "${RADXA_DRV}/drivers/aic_btusb/aic_btusb.ko" \
